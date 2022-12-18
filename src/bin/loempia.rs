@@ -1,7 +1,7 @@
+use loempia::Error;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
-use std::io::BufReader;
 use std::path::Path;
 
 struct Driver {
@@ -9,36 +9,40 @@ struct Driver {
 }
 
 impl Driver {
-    pub fn new<P: AsRef<Path>>(path: P) -> Self {
-        let mut file = match OpenOptions::new().read(true).write(true).open(&path) {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
+        let file = match OpenOptions::new().read(true).write(true).open(&path) {
             Ok(file) => file,
-            Err(err) => panic!("Failed to open file: {}", err),
+            Err(err) => return Err(err.into()),
         };
 
-        Self { file }
+        Ok(Self { file })
     }
 
-    pub fn execute_command(&mut self, cmd: Command) {
+    pub fn execute_command(&mut self, cmd: Command) -> Result<(), Error> {
         let mut _cmd = cmd.to_string();
         _cmd.push('\r');
         println!("Writing command: {:?}", _cmd.to_string());
 
         self.file
             .write_all(_cmd.as_bytes())
-            .expect("Failed to write command.");
+            .map_err(|err| Error::CommandError(cmd.to_string(), err))?;
 
         let mut response = String::new();
 
         loop {
             let mut buffer = [0; 1];
-            self.file.read_exact(&mut buffer).expect("Failted to read");
+            self.file
+                .read_exact(&mut buffer)
+                .map_err(|err| Error::ResponseError(cmd.to_string(), err))?;
+
             response.push(buffer[0] as char);
-            if buffer[0] == 10 {
+            if buffer[0] as char == '\n' {
                 break;
             }
         }
 
         println!("Response {:?}", response);
+        Ok(())
     }
 }
 
@@ -70,9 +74,13 @@ impl fmt::Display for Command {
 fn main() {
     let path = Path::new("/dev/ttyACM0");
 
-    let mut driver = Driver::new(path);
-    //driver.execute_command(Command::TP(Some(15)));
-    driver.execute_command(Command::QT);
-    driver.execute_command(Command::ST("Loempia".to_string()));
-    driver.execute_command(Command::QT);
+    let mut driver = Driver::open(path).expect("Failed to open driver");
+    driver
+        .execute_command(Command::TP(Some(15)))
+        .expect("Failed to execute command");
+    driver.execute_command(Command::QT).unwrap();
+    driver
+        .execute_command(Command::ST("Loempia".to_string()))
+        .unwrap();
+    driver.execute_command(Command::QT).unwrap();
 }
