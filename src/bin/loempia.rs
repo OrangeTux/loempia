@@ -46,22 +46,39 @@ impl Driver {
     }
 }
 
+/// Command supported by the device.
 pub enum Command {
+    /// Analog value get - Read all analog (ADC) input values.
     A,
+    /// Analog Configure - Configure an analog input channel.
+    AC {
+        channel: u8,
+        enable: bool,
+    },
+    // Query EBB nickname tag.
     QT,
-    TP(Option<u16>),
-    ST(String),
+    // Set EBB nickname tag - This command sets the EBB's "nickname".
+    ST {
+        name: String,
+    },
+    // Toggle Pen -  This command toggles the state of the pen (up->down and down->up).
+    TP {
+        duration: Option<u16>,
+    },
 }
 
 impl fmt::Display for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let cmd: String = match self {
             Command::A => "A".into(),
+            Command::AC { channel, enable } => {
+                format!("AC,{},{}", channel, enable.clone() as u8)
+            }
             Command::QT => "QT".into(),
-            Command::ST(name) => {
+            Command::ST { name } => {
                 format!("ST,{}", name)
             }
-            Command::TP(duration) => match duration {
+            Command::TP { duration } => match duration {
                 None => "TP".into(),
                 Some(duration) => format!("TP,{}", duration),
             },
@@ -76,11 +93,13 @@ fn main() {
 
     let mut driver = Driver::open(path).expect("Failed to open driver");
     driver
-        .execute_command(Command::TP(Some(15)))
+        .execute_command(Command::TP { duration: Some(15) })
         .expect("Failed to execute command");
     driver.execute_command(Command::QT).unwrap();
     driver
-        .execute_command(Command::ST("Loempia".to_string()))
+        .execute_command(Command::ST {
+            name: "Loempia".to_string(),
+        })
         .unwrap();
     driver.execute_command(Command::QT).unwrap();
 }
