@@ -3,7 +3,12 @@ name = "loempia"
 version = "0.1.0"
 edition = "2021"
 
+license_file = "LICENSE"
+readme = "README.md"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+serial-core = "0.4.0"
+serial-unix = "0.4.0"
 thiserror = "1.0.38"
