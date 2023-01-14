@@ -1,26 +1,27 @@
 mod how_to;
 use std::fmt;
-use std::fs::{File, OpenOptions};
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
+use std::time::Duration;
 use thiserror::Error;
 
+use serial_core::SerialDevice;
+
 pub struct Driver {
-    file: File,
+    file: serial_unix::TTYPort,
 }
 
 impl Driver {
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        let file = match OpenOptions::new().read(true).write(true).open(&path) {
-            Ok(file) => file,
-            Err(err) => return Err(err.into()),
-        };
+    pub fn open(path: &Path) -> Result<Self, Error> {
+        let mut port = serial_unix::TTYPort::open(&path)?;
+        port.set_timeout(Duration::from_millis(10000))?;
 
-        Ok(Self { file })
+        Ok(Self { file: port })
     }
 
     pub fn execute_command(&mut self, cmd: Command) -> Result<(), Error> {
+        //file.flush().unwrap();
         let mut _cmd = cmd.to_string();
         _cmd.push('\r');
         println!("Writing command: {:?}", _cmd.to_string());
@@ -38,7 +39,7 @@ impl Driver {
                 .map_err(|err| Error::ResponseError(cmd.to_string(), err))?;
 
             response.push(buffer[0] as char);
-            if buffer[0] as char == '\n' {
+            if response.ends_with("\r\n") {
                 break;
             }
         }
@@ -148,6 +149,9 @@ impl fmt::Display for Command {
 
 #[derive(Error, Debug)]
 pub enum Error {
+    #[error("Something went wrong with the serial port.")]
+    SerialPortError(#[from] serial_core::Error),
+
     #[error("Yolo")]
     IOError(#[from] io::Error),
 
