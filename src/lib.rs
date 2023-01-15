@@ -1,4 +1,3 @@
-mod how_to;
 use std::fmt;
 use std::io;
 use std::io::prelude::*;
