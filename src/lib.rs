@@ -14,7 +14,7 @@ pub struct Driver {
 
 impl Driver {
     pub fn open(path: &Path) -> Result<Self, Error> {
-        let mut port = serial_unix::TTYPort::open(&path)?;
+        let mut port = serial_unix::TTYPort::open(path)?;
         port.set_timeout(Duration::from_millis(10000))?;
 
         Ok(Self { file: port })
@@ -70,10 +70,11 @@ pub enum Command {
     },
     // Query EBB nickname tag.
     HM {
-        step_frequency: Option<u16>,
+        step_frequency: u16,
         position_1: Option<u32>,
         position_2: Option<u32>,
     },
+    QC,
     QT,
     /// Query Step position
     QS,
@@ -111,12 +112,10 @@ impl fmt::Display for Command {
                 format!("EM,{},{}", enable_1, enable_2)
             }
 
-            Command::HM { step_frequency, .. } => match step_frequency {
-                Some(_) => {
-                    unimplemented!("Arguments to command HM are not supported yet.");
-                }
-                None => "HM".to_string(),
-            },
+            Command::HM { step_frequency, .. } => {
+                format!("HM,{}", step_frequency)
+            }
+            Command::QC => "QC".into(),
             Command::QT => "QT".into(),
             Command::QS => "QS".into(),
             Command::R => "R".into(),
@@ -163,4 +162,64 @@ pub enum Error {
 
     #[error("Command {0} failed with error: {1}.")]
     ErrorResponse(Command, String),
+}
+
+pub type Point = (i32, i32);
+
+// Movement represents change in x and y direction.
+pub type Movement = (i32, i32);
+
+/// Plot the given series of points in a continuous motion.
+pub fn plot_points(driver: &mut Driver, points: Vec<Point>) -> Result<(), Error> {
+    let movements = get_movements(points);
+    let commands = get_commands(movements);
+
+    driver.execute_command(Command::Any("SP,0".to_string()))?;
+
+    for command in commands {
+        driver.execute_command(command)?;
+    }
+    driver.execute_command(Command::Any("SP,1".to_string()))?;
+
+    Ok(())
+}
+
+/// Calculate the movements to connect all points.
+pub fn get_movements(track: Vec<Point>) -> Vec<Movement> {
+    if track.len() <= 1 {
+        panic!("Failed to calculate movements. The given track has not enought points.");
+    }
+
+    track
+        .windows(2)
+        .map(|points| match points {
+            [(x1, y1), (x2, y2)] => (x2 - x1, y2 - y1),
+            _ => panic!("This shouldn't happen."),
+        })
+        .collect()
+}
+
+/// Get the commands to draw all the movements.
+pub fn get_commands(movements: Vec<Movement>) -> Vec<Command> {
+    fn movement_on_x_axis(delta_x: i32) -> (i32, i32) {
+        (delta_x, -delta_x)
+    }
+
+    fn movement_on_y_axis(delta_y: i32) -> (i32, i32) {
+        (delta_y, delta_y)
+    }
+
+    movements
+        .iter()
+        .map(|(delta_x, delta_y)| {
+            let (x1, y1) = movement_on_x_axis(*delta_x);
+            let (x2, y2) = movement_on_y_axis(*delta_y);
+
+            Command::SM {
+                duration: 1000,
+                axis_step_1: x1 + x2,
+                axis_step_2: Some(y1 + y2),
+            }
+        })
+        .collect()
 }

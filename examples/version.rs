@@ -1,10 +1,11 @@
-use loempia::{Command, Driver};
+use loempia::{Command, Driver, Error};
 use std::path::Path;
 
-fn main() {
+fn main() -> Result<(), Error> {
     let path = Path::new("/dev/ttyACM0");
 
-    let mut driver = Driver::open(path).expect("Failed to open driver");
+    let mut driver = Driver::open(path)?;
 
-    driver.execute_command(Command::V).unwrap();
+    driver.execute_command(Command::V)?;
+    Ok(())
 }
