@@ -1,26 +1,155 @@
+use std::convert::TryFrom;
 use std::fmt;
 use std::io;
 use std::io::prelude::*;
-use std::path::Path;
+use std::ops;
+use std::path;
 use std::time::Duration;
 use thiserror::Error;
 
 use serial_core::SerialDevice;
+
+/// A `Point` is a coordinate on a 2D cartesian plane. Multi
+pub type Point = (i32, i32);
+
+/// A series of connected `Point`s form a `Path`.
+pub type Path = Vec<Point>;
+
+pub struct Paths(pub Vec<Path>);
+
+impl ops::Deref for Paths {
+    type Target = Vec<Path>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+// A `Vector` represents a movement in an x and y direction.
+type Vector = (i32, i32);
+
+impl From<&Vector> for Command {
+    fn from(value: &Vector) -> Self {
+        fn movement_on_x_axis(delta_x: i32) -> (i32, i32) {
+            (delta_x, -delta_x)
+        }
+
+        fn movement_on_y_axis(delta_y: i32) -> (i32, i32) {
+            (delta_y, delta_y)
+        }
+        let (delta_x, delta_y) = value;
+
+        let (x1, y1) = movement_on_x_axis(*delta_x);
+        let (x2, y2) = movement_on_y_axis(*delta_y);
+
+        Command::SM {
+            duration: 1000,
+            axis_step_1: x1 + x2,
+            axis_step_2: Some(y1 + y2),
+        }
+    }
+}
+
+/// A `Stroke` is a collection of `Vector`s.
+#[derive(PartialEq, Debug)]
+struct Stroke(pub Vec<Vector>);
+
+impl ops::Deref for Stroke {
+    type Target = Vec<Vector>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl TryFrom<&Path> for Stroke {
+    type Error = Error;
+
+    fn try_from(path: &Path) -> Result<Self, Self::Error> {
+        let vectors: Result<Vec<Vector>, Self::Error>  = path
+            .windows(2)
+            .map(|points| match points {
+                [(x1, y1), (x2, y2)] => Ok((x2 - x1, y2 - y1)),
+                _ => Err(Error::ConversionError(format!("Failed to convert `Path` to `Stroke`. Given `Path` contains {:?} `Point`s, but requires at least 2 `Point`s.", path.len())))
+            })
+            .collect();
+
+        let vectors = vectors?;
+        Ok(Stroke(vectors))
+    }
+}
+
+#[derive(PartialEq, Debug)]
+struct Strokes(pub Vec<Stroke>);
+
+impl ops::Deref for Strokes {
+    type Target = Vec<Stroke>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl TryFrom<&Paths> for Strokes {
+    type Error = Error;
+
+    fn try_from(paths: &Paths) -> Result<Self, Self::Error> {
+        let strokes: Result<Vec<Stroke>, Self::Error> =
+            paths.iter().map(Stroke::try_from).collect();
+
+        Ok(Strokes(strokes?))
+    }
+}
+
+fn convert_to_series_of_commands(strokes: Strokes) -> Vec<Vec<Command>> {
+    strokes
+        .iter()
+        .map(|stroke| stroke.iter().map(Command::from).collect())
+        .collect()
+}
+
+/// A `Plot` is a collection of `Layer`s
+pub struct Plot {
+    pub paths: Paths,
+}
+
+impl Plot {
+    pub fn from_path(path: Path) -> Self {
+        Plot {
+            paths: Paths(vec![path]),
+        }
+    }
+}
 
 pub struct Driver {
     file: serial_unix::TTYPort,
 }
 
 impl Driver {
-    pub fn open(path: &Path) -> Result<Self, Error> {
+    pub fn open(path: &path::Path) -> Result<Self, Error> {
         let mut port = serial_unix::TTYPort::open(path)?;
         port.set_timeout(Duration::from_millis(10000))?;
 
         Ok(Self { file: port })
     }
 
+    pub fn plot(&mut self, plot: &Plot) -> Result<(), Error> {
+        let strokes: Strokes = Strokes::try_from(&plot.paths)?;
+        let commands = convert_to_series_of_commands(strokes);
+
+        for stroke in commands {
+            self.execute_command(Command::Any("SP,0".to_string()))?;
+
+            for command in stroke {
+                self.execute_command(command)?;
+            }
+            self.execute_command(Command::Any("SP,1".to_string()))?;
+        }
+
+        Ok(())
+    }
+
     pub fn execute_command(&mut self, cmd: Command) -> Result<(), Error> {
-        //file.flush().unwrap();
         let mut _cmd = cmd.to_string();
         _cmd.push('\r');
         println!("Writing command: {:?}", _cmd.to_string());
@@ -53,7 +182,7 @@ impl Driver {
 }
 
 /// Command supported by the device.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Command {
     /// Analog value get - Read all analog (ADC) input values.
     A,
@@ -161,64 +290,53 @@ pub enum Error {
 
     #[error("Command {0} failed with error: {1}.")]
     ErrorResponse(Command, String),
+
+    #[error("{0}")]
+    ConversionError(String),
 }
 
-pub type Point = (i32, i32);
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-// Movement represents change in x and y direction.
-pub type Movement = (i32, i32);
+    #[test]
+    fn convert_valid_path_to_stroke() {
+        let path: Path = vec![(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)];
 
-/// Plot the given series of points in a continuous motion.
-pub fn plot_points(driver: &mut Driver, points: Vec<Point>) -> Result<(), Error> {
-    let movements = get_movements(points);
-    let commands = get_commands(movements);
+        let vectors = Stroke::try_from(&path).unwrap();
+        let expected = Stroke(vec![(1, 0), (0, 1), (-1, 0), (0, -1)]);
 
-    driver.execute_command(Command::Any("SP,0".to_string()))?;
-
-    for command in commands {
-        driver.execute_command(command)?;
-    }
-    driver.execute_command(Command::Any("SP,1".to_string()))?;
-
-    Ok(())
-}
-
-/// Calculate the movements to connect all points.
-pub fn get_movements(track: Vec<Point>) -> Vec<Movement> {
-    if track.len() <= 1 {
-        panic!("Failed to calculate movements. The given track has not enought points.");
+        assert_eq!(vectors, expected);
     }
 
-    track
-        .windows(2)
-        .map(|points| match points {
-            [(x1, y1), (x2, y2)] => (x2 - x1, y2 - y1),
-            _ => panic!("This shouldn't happen."),
-        })
-        .collect()
-}
+    #[test]
+    fn convert_valid_stroke_to_series_of_commands() {
+        let stroke = Stroke(vec![(1, 0), (0, 1), (-1, 0), (0, -1)]);
 
-/// Get the commands to draw all the movements.
-pub fn get_commands(movements: Vec<Movement>) -> Vec<Command> {
-    fn movement_on_x_axis(delta_x: i32) -> (i32, i32) {
-        (delta_x, -delta_x)
-    }
-
-    fn movement_on_y_axis(delta_y: i32) -> (i32, i32) {
-        (delta_y, delta_y)
-    }
-
-    movements
-        .iter()
-        .map(|(delta_x, delta_y)| {
-            let (x1, y1) = movement_on_x_axis(*delta_x);
-            let (x2, y2) = movement_on_y_axis(*delta_y);
-
+        let commands = convert_to_series_of_commands(Strokes(vec![stroke]));
+        let expected = vec![vec![
             Command::SM {
                 duration: 1000,
-                axis_step_1: x1 + x2,
-                axis_step_2: Some(y1 + y2),
-            }
-        })
-        .collect()
+                axis_step_1: 1,
+                axis_step_2: Some(-1),
+            },
+            Command::SM {
+                duration: 1000,
+                axis_step_1: 1,
+                axis_step_2: Some(1),
+            },
+            Command::SM {
+                duration: 1000,
+                axis_step_1: -1,
+                axis_step_2: Some(1),
+            },
+            Command::SM {
+                duration: 1000,
+                axis_step_1: -1,
+                axis_step_2: Some(-1),
+            },
+        ]];
+
+        assert_eq!(commands, expected);
+    }
 }

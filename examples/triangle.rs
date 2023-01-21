@@ -1,24 +1,22 @@
-use loempia::{plot_points, Driver, Error, Point};
+use loempia::{Driver, Error, Plot};
 use std::path::Path;
 
 fn main() -> Result<(), Error> {
-    let scale = 1000;
-    let track: Vec<Point> = vec![
-        (1, 1),
-        (2, 0),
-        (3, 1),
-        (4, 0),
-        (0, 0),
-        (2, 2),
-        (3, 1),
-        (1, 1),
+    let serial_path = Path::new("/dev/ttyACM0");
+    let mut driver = Driver::open(serial_path)?;
+
+    let path = vec![
+        (1000, 1000),
+        (2000, 0000),
+        (3000, 1000),
+        (4000, 0000),
+        (0000, 0000),
+        (2000, 2000),
+        (3000, 1000),
+        (1000, 1000),
     ];
+    let plot = Plot::from_path(path);
 
-    let track: Vec<Point> = track.iter().map(|(x, y)| (x * scale, y * scale)).collect();
-
-    let path = Path::new("/dev/ttyACM0");
-
-    let mut driver = Driver::open(path)?;
-    plot_points(&mut driver, track)?;
+    driver.plot(&plot)?;
     Ok(())
 }
