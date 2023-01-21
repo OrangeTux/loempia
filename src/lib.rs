@@ -1,22 +1,120 @@
+use std::convert::TryFrom;
 use std::fmt;
 use std::io;
 use std::io::prelude::*;
-use std::path::Path;
+use std::path;
 use std::time::Duration;
 use thiserror::Error;
 
 use serial_core::SerialDevice;
 
+/// A `Point` represent a coordinate on a 2D cartesian plane.
+pub type Point = (i32, i32);
+
+// A `Vector` represents a movement in x and y direction.
+type Vector = (i32, i32);
+
+impl From<Vector> for Command {
+    fn from(value: Vector) -> Self {
+        fn movement_on_x_axis(delta_x: i32) -> (i32, i32) {
+            (delta_x, -delta_x)
+        }
+
+        fn movement_on_y_axis(delta_y: i32) -> (i32, i32) {
+            (delta_y, delta_y)
+        }
+        let (delta_x, delta_y) = value;
+
+        let (x1, y1) = movement_on_x_axis(delta_x);
+        let (x2, y2) = movement_on_y_axis(delta_y);
+
+        Command::SM {
+            duration: 1000,
+            axis_step_1: x1 + x2,
+            axis_step_2: Some(y1 + y2),
+        }
+    }
+}
+
+struct Vectors(pub Vec<Vector>);
+
+/// A series of connected `Point`s form a `Path`.
+pub type Path = Vec<Point>;
+
+/// A `Layer` is a group of paths that are plotted using the same head.
+/// Multiple layers allow one to change head to plot in mulitple colors.
+pub type Layer = Vec<Path>;
+
+/// A `Plot` is a collection of `Layer`s
+pub struct Plot {
+    pub layers: Vec<Layer>,
+}
+
 pub struct Driver {
     file: serial_unix::TTYPort,
 }
 
+impl TryFrom<Path> for Vectors {
+    type Error = Error;
+
+    fn try_from(path: Path) -> Result<Self, Self::Error> {
+        if path.len() <= 1 {
+            panic!("Failed to calculate movements. The given track has not enought points.");
+        }
+
+        let vectors: Vec<Vector> = path
+            .windows(2)
+            .map(|points| match points {
+                [(x1, y1), (x2, y2)] => (x2 - x1, y2 - y1),
+                _ => panic!("This shouldn't happen."),
+            })
+            .collect();
+
+        Ok(Vectors(vectors))
+    }
+}
+
 impl Driver {
-    pub fn open(path: &Path) -> Result<Self, Error> {
+    pub fn open(path: &path::Path) -> Result<Self, Error> {
         let mut port = serial_unix::TTYPort::open(path)?;
         port.set_timeout(Duration::from_millis(10000))?;
 
         Ok(Self { file: port })
+    }
+
+    pub fn plot(&mut self, plot: &Plot) -> Result<(), Error> {
+        // TODO: Create `Vector` for all other layers, not just the first layer.
+        let vectors: Vec<Vectors> = plot.layers[0]
+            .iter()
+            .map(|path| {
+                // TODO: Understand why next line is required. Why can't i just pass `path` to
+                // try_from()`?
+                let path: Path = path.to_vec();
+                Vectors::try_from(path).expect("FUU")
+            })
+            .collect();
+
+        // TODO: Create `Vec<Commands>` for all Vectors.
+        let commands: Vec<Command> = vectors[0]
+            .0
+            .iter()
+            .map(|vector| {
+                // TODO: Understand why next line is required. Why can't i just pass `vector` to
+                // from()`?
+                let vector: Vector = *vector;
+                Command::from(vector)
+            })
+            .collect();
+
+        self.execute_command(Command::Any("SP,0".to_string()))?;
+
+        for command in commands {
+            self.execute_command(command)?;
+        }
+
+        self.execute_command(Command::Any("SP,1".to_string()))?;
+
+        Ok(())
     }
 
     pub fn execute_command(&mut self, cmd: Command) -> Result<(), Error> {
@@ -161,64 +259,4 @@ pub enum Error {
 
     #[error("Command {0} failed with error: {1}.")]
     ErrorResponse(Command, String),
-}
-
-pub type Point = (i32, i32);
-
-// Movement represents change in x and y direction.
-pub type Movement = (i32, i32);
-
-/// Plot the given series of points in a continuous motion.
-pub fn plot_points(driver: &mut Driver, points: Vec<Point>) -> Result<(), Error> {
-    let movements = get_movements(points);
-    let commands = get_commands(movements);
-
-    driver.execute_command(Command::Any("SP,0".to_string()))?;
-
-    for command in commands {
-        driver.execute_command(command)?;
-    }
-    driver.execute_command(Command::Any("SP,1".to_string()))?;
-
-    Ok(())
-}
-
-/// Calculate the movements to connect all points.
-pub fn get_movements(track: Vec<Point>) -> Vec<Movement> {
-    if track.len() <= 1 {
-        panic!("Failed to calculate movements. The given track has not enought points.");
-    }
-
-    track
-        .windows(2)
-        .map(|points| match points {
-            [(x1, y1), (x2, y2)] => (x2 - x1, y2 - y1),
-            _ => panic!("This shouldn't happen."),
-        })
-        .collect()
-}
-
-/// Get the commands to draw all the movements.
-pub fn get_commands(movements: Vec<Movement>) -> Vec<Command> {
-    fn movement_on_x_axis(delta_x: i32) -> (i32, i32) {
-        (delta_x, -delta_x)
-    }
-
-    fn movement_on_y_axis(delta_y: i32) -> (i32, i32) {
-        (delta_y, delta_y)
-    }
-
-    movements
-        .iter()
-        .map(|(delta_x, delta_y)| {
-            let (x1, y1) = movement_on_x_axis(*delta_x);
-            let (x2, y2) = movement_on_y_axis(*delta_y);
-
-            Command::SM {
-                duration: 1000,
-                axis_step_1: x1 + x2,
-                axis_step_2: Some(y1 + y2),
-            }
-        })
-        .collect()
 }
