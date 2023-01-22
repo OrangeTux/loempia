@@ -2,14 +2,28 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::io;
 use std::io::prelude::*;
+use std::ops;
 use std::path;
 use std::time::Duration;
 use thiserror::Error;
 
 use serial_core::SerialDevice;
 
-/// A `Point` represent a coordinate on a 2D cartesian plane.
+/// A `Point` is a coordinate on a 2D cartesian plane. Multi
 pub type Point = (i32, i32);
+
+/// A series of connected `Point`s form a `Path`.
+pub type Path = Vec<Point>;
+
+pub struct Paths(pub Vec<Path>);
+
+impl ops::Deref for Paths {
+    type Target = Vec<Path>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 // A `Vector` represents a movement in an x and y direction.
 type Vector = (i32, i32);
@@ -36,8 +50,17 @@ impl From<&Vector> for Command {
     }
 }
 
+/// A `Stroke` is a collection of `Vector`s.
 #[derive(PartialEq, Debug)]
 struct Stroke(pub Vec<Vector>);
+
+impl ops::Deref for Stroke {
+    type Target = Vec<Vector>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl TryFrom<&Path> for Stroke {
     type Error = Error;
@@ -59,36 +82,29 @@ impl TryFrom<&Path> for Stroke {
 #[derive(PartialEq, Debug)]
 struct Strokes(pub Vec<Stroke>);
 
+impl ops::Deref for Strokes {
+    type Target = Vec<Stroke>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl TryFrom<&Paths> for Strokes {
     type Error = Error;
 
     fn try_from(paths: &Paths) -> Result<Self, Self::Error> {
-        let strokes: Result<Vec<Stroke>, Self::Error> = paths
-            .0
-            .iter()
-            .map(Stroke::try_from)
-            .collect();
+        let strokes: Result<Vec<Stroke>, Self::Error> =
+            paths.iter().map(Stroke::try_from).collect();
 
         Ok(Strokes(strokes?))
     }
 }
 
-/// A series of connected `Point`s form a `Path`.
-pub type Path = Vec<Point>;
-
-pub struct Paths(pub Vec<Path>);
-
 fn convert_to_series_of_commands(strokes: Strokes) -> Vec<Vec<Command>> {
     strokes
-        .0
         .iter()
-        .map(|stroke| {
-            stroke
-                .0
-                .iter()
-                .map(Command::from)
-                .collect()
-        })
+        .map(|stroke| stroke.iter().map(Command::from).collect())
         .collect()
 }
 
