@@ -43,18 +43,15 @@ impl TryFrom<&Path> for Stroke {
     type Error = Error;
 
     fn try_from(path: &Path) -> Result<Self, Self::Error> {
-        if path.len() <= 1 {
-            panic!("Failed to calculate stroke. The given path has not enough points.");
-        }
-
-        let vectors: Vec<Vector> = path
+        let vectors: Result<Vec<Vector>, Self::Error>  = path
             .windows(2)
             .map(|points| match points {
-                [(x1, y1), (x2, y2)] => (x2 - x1, y2 - y1),
-                _ => panic!("This shouldn't happen."),
+                [(x1, y1), (x2, y2)] => Ok((x2 - x1, y2 - y1)),
+                _ => Err(Error::ConversionError(format!("Failed to convert `Path` to `Stroke`. Given `Path` contains {:?} `Point`s, but requires at least 2 `Point`s.", path.len())))
             })
             .collect();
 
+        let vectors = vectors?;
         Ok(Stroke(vectors))
     }
 }
@@ -66,13 +63,13 @@ impl TryFrom<&Paths> for Strokes {
     type Error = Error;
 
     fn try_from(paths: &Paths) -> Result<Self, Self::Error> {
-        let strokes: Vec<Stroke> = paths
+        let strokes: Result<Vec<Stroke>, Self::Error> = paths
             .0
             .iter()
-            .map(|path| Stroke::try_from(path).expect("yolo"))
+            .map(Stroke::try_from)
             .collect();
 
-        Ok(Strokes(strokes))
+        Ok(Strokes(strokes?))
     }
 }
 
@@ -89,7 +86,7 @@ fn convert_to_series_of_commands(strokes: Strokes) -> Vec<Vec<Command>> {
             stroke
                 .0
                 .iter()
-                .map(|vector| Command::from(vector))
+                .map(Command::from)
                 .collect()
         })
         .collect()
@@ -121,7 +118,7 @@ impl Driver {
     }
 
     pub fn plot(&mut self, plot: &Plot) -> Result<(), Error> {
-        let strokes: Strokes = Strokes::try_from(&plot.paths).unwrap();
+        let strokes: Strokes = Strokes::try_from(&plot.paths)?;
         let commands = convert_to_series_of_commands(strokes);
 
         for stroke in commands {
@@ -137,7 +134,6 @@ impl Driver {
     }
 
     pub fn execute_command(&mut self, cmd: Command) -> Result<(), Error> {
-        //file.flush().unwrap();
         let mut _cmd = cmd.to_string();
         _cmd.push('\r');
         println!("Writing command: {:?}", _cmd.to_string());
@@ -278,6 +274,9 @@ pub enum Error {
 
     #[error("Command {0} failed with error: {1}.")]
     ErrorResponse(Command, String),
+
+    #[error("{0}")]
+    ConversionError(String),
 }
 
 #[cfg(test)]
