@@ -11,11 +11,11 @@ use serial_core::SerialDevice;
 /// A `Point` represent a coordinate on a 2D cartesian plane.
 pub type Point = (i32, i32);
 
-// A `Vector` represents a movement in x and y direction.
+// A `Vector` represents a movement in an x and y direction.
 type Vector = (i32, i32);
 
-impl From<Vector> for Command {
-    fn from(value: Vector) -> Self {
+impl From<&Vector> for Command {
+    fn from(value: &Vector) -> Self {
         fn movement_on_x_axis(delta_x: i32) -> (i32, i32) {
             (delta_x, -delta_x)
         }
@@ -25,8 +25,8 @@ impl From<Vector> for Command {
         }
         let (delta_x, delta_y) = value;
 
-        let (x1, y1) = movement_on_x_axis(delta_x);
-        let (x2, y2) = movement_on_y_axis(delta_y);
+        let (x1, y1) = movement_on_x_axis(*delta_x);
+        let (x2, y2) = movement_on_y_axis(*delta_y);
 
         Command::SM {
             duration: 1000,
@@ -36,30 +36,15 @@ impl From<Vector> for Command {
     }
 }
 
-struct Vectors(pub Vec<Vector>);
+#[derive(PartialEq, Debug)]
+struct Stroke(pub Vec<Vector>);
 
-/// A series of connected `Point`s form a `Path`.
-pub type Path = Vec<Point>;
-
-/// A `Layer` is a group of paths that are plotted using the same head.
-/// Multiple layers allow one to change head to plot in mulitple colors.
-pub type Layer = Vec<Path>;
-
-/// A `Plot` is a collection of `Layer`s
-pub struct Plot {
-    pub layers: Vec<Layer>,
-}
-
-pub struct Driver {
-    file: serial_unix::TTYPort,
-}
-
-impl TryFrom<Path> for Vectors {
+impl TryFrom<&Path> for Stroke {
     type Error = Error;
 
-    fn try_from(path: Path) -> Result<Self, Self::Error> {
+    fn try_from(path: &Path) -> Result<Self, Self::Error> {
         if path.len() <= 1 {
-            panic!("Failed to calculate movements. The given track has not enought points.");
+            panic!("Failed to calculate stroke. The given path has not enough points.");
         }
 
         let vectors: Vec<Vector> = path
@@ -70,8 +55,61 @@ impl TryFrom<Path> for Vectors {
             })
             .collect();
 
-        Ok(Vectors(vectors))
+        Ok(Stroke(vectors))
     }
+}
+
+#[derive(PartialEq, Debug)]
+struct Strokes(pub Vec<Stroke>);
+
+impl TryFrom<&Paths> for Strokes {
+    type Error = Error;
+
+    fn try_from(paths: &Paths) -> Result<Self, Self::Error> {
+        let strokes: Vec<Stroke> = paths
+            .0
+            .iter()
+            .map(|path| Stroke::try_from(path).expect("yolo"))
+            .collect();
+
+        Ok(Strokes(strokes))
+    }
+}
+
+/// A series of connected `Point`s form a `Path`.
+pub type Path = Vec<Point>;
+
+pub struct Paths(pub Vec<Path>);
+
+fn convert_to_series_of_commands(strokes: Strokes) -> Vec<Vec<Command>> {
+    strokes
+        .0
+        .iter()
+        .map(|stroke| {
+            stroke
+                .0
+                .iter()
+                .map(|vector| Command::from(vector))
+                .collect()
+        })
+        .collect()
+}
+
+/// A `Plot` is a collection of `Layer`s
+pub struct Plot {
+    pub paths: Paths,
+}
+
+impl Plot {
+    pub fn from_path(path: Path) -> Self {
+        Plot {
+            paths: Paths(vec![path]),
+        }
+    }
+}
+
+pub struct Driver {
+    file: serial_unix::TTYPort,
 }
 
 impl Driver {
@@ -83,36 +121,17 @@ impl Driver {
     }
 
     pub fn plot(&mut self, plot: &Plot) -> Result<(), Error> {
-        // TODO: Create `Vector` for all other layers, not just the first layer.
-        let vectors: Vec<Vectors> = plot.layers[0]
-            .iter()
-            .map(|path| {
-                // TODO: Understand why next line is required. Why can't i just pass `path` to
-                // try_from()`?
-                let path: Path = path.to_vec();
-                Vectors::try_from(path).expect("FUU")
-            })
-            .collect();
+        let strokes: Strokes = Strokes::try_from(&plot.paths).unwrap();
+        let commands = convert_to_series_of_commands(strokes);
 
-        // TODO: Create `Vec<Commands>` for all Vectors.
-        let commands: Vec<Command> = vectors[0]
-            .0
-            .iter()
-            .map(|vector| {
-                // TODO: Understand why next line is required. Why can't i just pass `vector` to
-                // from()`?
-                let vector: Vector = *vector;
-                Command::from(vector)
-            })
-            .collect();
+        for stroke in commands {
+            self.execute_command(Command::Any("SP,0".to_string()))?;
 
-        self.execute_command(Command::Any("SP,0".to_string()))?;
-
-        for command in commands {
-            self.execute_command(command)?;
+            for command in stroke {
+                self.execute_command(command)?;
+            }
+            self.execute_command(Command::Any("SP,1".to_string()))?;
         }
-
-        self.execute_command(Command::Any("SP,1".to_string()))?;
 
         Ok(())
     }
@@ -151,7 +170,7 @@ impl Driver {
 }
 
 /// Command supported by the device.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Command {
     /// Analog value get - Read all analog (ADC) input values.
     A,
@@ -259,4 +278,50 @@ pub enum Error {
 
     #[error("Command {0} failed with error: {1}.")]
     ErrorResponse(Command, String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn convert_valid_path_to_stroke() {
+        let path: Path = vec![(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)];
+
+        let vectors = Stroke::try_from(&path).unwrap();
+        let expected = Stroke(vec![(1, 0), (0, 1), (-1, 0), (0, -1)]);
+
+        assert_eq!(vectors, expected);
+    }
+
+    #[test]
+    fn convert_valid_stroke_to_series_of_commands() {
+        let stroke = Stroke(vec![(1, 0), (0, 1), (-1, 0), (0, -1)]);
+
+        let commands = convert_to_series_of_commands(Strokes(vec![stroke]));
+        let expected = vec![vec![
+            Command::SM {
+                duration: 1000,
+                axis_step_1: 1,
+                axis_step_2: Some(-1),
+            },
+            Command::SM {
+                duration: 1000,
+                axis_step_1: 1,
+                axis_step_2: Some(1),
+            },
+            Command::SM {
+                duration: 1000,
+                axis_step_1: -1,
+                axis_step_2: Some(1),
+            },
+            Command::SM {
+                duration: 1000,
+                axis_step_1: -1,
+                axis_step_2: Some(-1),
+            },
+        ]];
+
+        assert_eq!(commands, expected);
+    }
 }

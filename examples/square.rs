@@ -1,33 +1,13 @@
-use loempia::{Command, Driver, Error};
+use loempia::{Driver, Error, Plot};
 use std::path::Path;
 
 fn main() -> Result<(), Error> {
-    let path = Path::new("/dev/ttyACM0");
+    let serial_path = Path::new("/dev/ttyACM0");
+    let mut driver = Driver::open(serial_path)?;
 
-    let mut driver = Driver::open(path)?;
+    let path = vec![(0, 0), (1000, 0), (1000, 1000), (0, 1000), (0, 0)];
+    let plot = Plot::from_path(path);
 
-    driver.execute_command(Command::Any("SP,0".to_string()))?;
-    driver.execute_command(Command::SM {
-        duration: 1000,
-        axis_step_1: 1000,
-        axis_step_2: Some(-1000),
-    })?;
-    driver.execute_command(Command::SM {
-        duration: 1000,
-        axis_step_1: 1000,
-        axis_step_2: Some(1000),
-    })?;
-    driver.execute_command(Command::SM {
-        duration: 1000,
-        axis_step_1: -1000,
-        axis_step_2: Some(1000),
-    })?;
-
-    driver.execute_command(Command::SM {
-        duration: 1000,
-        axis_step_1: -1000,
-        axis_step_2: Some(-1000),
-    })?;
-    driver.execute_command(Command::Any("SP,1".to_string()))?;
+    driver.plot(&plot)?;
     Ok(())
 }
