@@ -1,4 +1,4 @@
-use loempia::{Driver, Error, Plot};
+use loempia::{Driver, Error, Plot, get_boundaries};
 use roxmltree::{Document, Node};
 use std::{env, fs, path};
 
@@ -79,45 +79,6 @@ fn track_segment_to_path(node: &Node) -> Path {
         .collect();
 }
 
-/// Get the four boundaries of the `Path`s, meaning the minimum and maximum latitude and longitude.
-fn get_boundaries(paths: &Vec<Path>) -> (f32, f32, f32, f32) {
-    let (mut min_lat, mut min_lon, mut max_lat, mut max_lon) = (None, None, None, None);
-
-    paths.iter().for_each(|path| {
-        path.iter().for_each(|(lat, lon)| {
-            _ = min_lat.get_or_insert(lat);
-            _ = max_lat.get_or_insert(lat);
-
-            // `unwrap()` is safe here.
-            if lat < min_lat.unwrap() {
-                min_lat.replace(lat);
-            }
-
-            if lat > max_lat.unwrap() {
-                max_lat.replace(lat);
-            }
-
-            _ = min_lon.get_or_insert(lon);
-            _ = max_lon.get_or_insert(lon);
-
-            if lon < min_lon.unwrap() {
-                min_lon.replace(lon);
-            }
-
-            if lon > max_lon.unwrap() {
-                max_lon.replace(lon);
-            }
-        });
-    });
-
-    (
-        *min_lat.unwrap(),
-        *min_lon.unwrap(),
-        *max_lat.unwrap(),
-        *max_lon.unwrap(),
-    )
-}
-
 /// Adjust every point by the given latitude and longitude.
 fn adjust(paths: Vec<Path>, adjustment: (f32, f32)) -> Vec<Path> {
     let (lat_adjustment, lon_adjustment) = adjustment;
@@ -157,7 +118,7 @@ fn to_paths(paths: Vec<Path>) -> loempia::Paths {
         })
         .collect();
 
-    loempia::Paths(paths)
+    loempia::Paths::new(paths).unwrap()
 }
 
 fn down_size(paths: Vec<Path>, resolution: usize) -> Vec<Path> {
@@ -222,14 +183,12 @@ fn main() -> Result<(), Error> {
 
     let paths = adjust(paths, (lat_adjustment, lon_adjustment));
     let paths = scale(paths, 500_000.0);
-    let paths: loempia::Paths = to_paths(paths);
 
-    println!("Found {} tracks", paths.len());
+    let paths: loempia::Paths = to_paths(paths);
+    let plot = Plot::new(paths);
 
     let serial_path = path::Path::new("/dev/ttyACM0");
     let mut driver = Driver::open(serial_path)?;
-
-    let plot = Plot { paths };
 
     driver.plot(&plot)?;
     Ok(())
