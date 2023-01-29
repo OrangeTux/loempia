@@ -6,7 +6,7 @@ fn main() -> Result<(), Error> {
     let mut driver = Driver::open(serial_path)?;
 
     let path = vec![(0, 0), (1000, 0), (1000, 1000), (0, 1000), (0, 0)];
-    let plot = Plot::from_path(path);
+    let plot = Plot::from_path(path)?;
 
     driver.plot(&plot)?;
     Ok(())

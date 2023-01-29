@@ -7,6 +7,10 @@ use std::path;
 use std::time::Duration;
 use thiserror::Error;
 
+use svg::node::element::path::Data;
+use svg::node::element::Path as SVG_Path;
+use svg::Document;
+
 use serial_core::SerialDevice;
 
 /// A `Point` is a coordinate on a 2D cartesian plane. Multi
@@ -15,14 +19,67 @@ pub type Point = (i32, i32);
 /// A series of connected `Point`s form a `Path`.
 pub type Path = Vec<Point>;
 
-pub struct Paths(pub Vec<Path>);
+pub struct Paths {
+    paths: Vec<Path>,
+}
 
-impl ops::Deref for Paths {
-    type Target = Vec<Path>;
+impl Paths {
+    /// Create new `Paths`. Returns `Err` when Vector doesn't contain a path with minimum length of
+    /// 2 points.
+    pub fn new(paths: Vec<Path>) -> Result<Self, Error> {
+        // Filter all paths with 0 or 1 points. They can't be plotted.
+        let paths: Vec<Path> = paths.into_iter().filter(|path| path.len() > 1).collect();
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
+        if paths.is_empty() {
+            return Err(Error::InvalidPathError(
+                "`paths` doesn't contain a single path with lenght of 2 points or more."
+                    .to_string(),
+            ));
+        }
+
+        //let start = start.ok_or(Error::InvalidPathError("Path is empty".to_string()))?;
+        Ok(Self { paths })
     }
+}
+
+/// Get the boundaries of the boundaries of a series of paths. The function is generic
+/// over the type coordinate type
+pub fn get_boundaries<T: PartialOrd + Copy>(paths: &Vec<Vec<(T, T)>>) -> (T, T, T, T) {
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = (None, None, None, None);
+
+    paths.iter().for_each(|path| {
+        path.iter().for_each(|(x, y)| {
+            _ = min_x.get_or_insert(x);
+            _ = max_x.get_or_insert(x);
+
+            // `unwrap()` is safe here.
+            if x < min_x.unwrap() {
+                min_x.replace(x);
+            }
+
+            if x > max_x.unwrap() {
+                max_x.replace(x);
+            }
+
+            _ = min_y.get_or_insert(y);
+            _ = max_y.get_or_insert(y);
+
+            if y < min_y.unwrap() {
+                min_y.replace(y);
+            }
+
+            if y > max_y.unwrap() {
+                max_y.replace(y);
+            }
+        });
+    });
+
+    (
+        *min_x.unwrap(),
+        *min_y.unwrap(),
+        *max_x.unwrap(),
+        *max_y.unwrap(),
+    )
 }
 
 // A `Vector` represents a movement in an x and y direction.
@@ -95,7 +152,7 @@ impl TryFrom<&Paths> for Strokes {
 
     fn try_from(paths: &Paths) -> Result<Self, Self::Error> {
         let strokes: Result<Vec<Stroke>, Self::Error> =
-            paths.iter().map(Stroke::try_from).collect();
+            paths.paths.iter().map(Stroke::try_from).collect();
 
         Ok(Strokes(strokes?))
     }
@@ -108,16 +165,51 @@ fn convert_to_series_of_commands(strokes: Strokes) -> Vec<Vec<Command>> {
         .collect()
 }
 
-/// A `Plot` is a collection of `Layer`s
 pub struct Plot {
-    pub paths: Paths,
+    paths: Paths,
+    start: Point,
 }
 
 impl Plot {
-    pub fn from_path(path: Path) -> Self {
-        Plot {
-            paths: Paths(vec![path]),
+    /// Create a new `Plot`.
+    pub fn new(paths: Paths) -> Self {
+        let start = paths.paths[0][0];
+        Plot { paths, start }
+    }
+
+    /// Create a new `Plot` using a single `Path`.
+    pub fn from_path(path: Path) -> Result<Self, Error> {
+        let paths = Paths::new(vec![path])?;
+        Ok(Plot::new(paths))
+    }
+
+    /// Create SVG preview `Plot` as SVG.
+    pub fn preview(&self) -> Document {
+        let (min_x, min_y, max_x, max_y) = get_boundaries(&self.paths.paths);
+        let mut data = Data::new().move_to(self.start);
+
+        let strokes: Strokes = (&self.paths).try_into().unwrap();
+
+        for stroke in strokes.0 {
+            for point in &stroke.0 {
+                data = data.line_by(*point);
+            }
         }
+
+        data = data.close();
+
+        let path = SVG_Path::new()
+            .set("fill", "none")
+            .set("stroke", "black")
+            .set("stroke-width", 10)
+            .set("d", data);
+
+        Document::new()
+            .set(
+                "viewBox",
+                (min_x, min_y, max_x - min_x, max_y - min_y),
+            )
+            .add(path)
     }
 }
 
@@ -293,6 +385,9 @@ pub enum Error {
 
     #[error("{0}")]
     ConversionError(String),
+
+    #[error("{0}")]
+    InvalidPathError(String),
 }
 
 #[cfg(test)]

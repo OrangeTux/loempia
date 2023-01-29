@@ -15,7 +15,7 @@ fn main() -> Result<(), Error> {
         (3000, 1000),
         (1000, 1000),
     ];
-    let plot = Plot::from_path(path);
+    let plot = Plot::from_path(path)?;
 
     driver.plot(&plot)?;
     Ok(())
