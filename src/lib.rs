@@ -35,7 +35,7 @@ impl From<&Vector> for Command {
         }
 
         fn movement_on_y_axis(delta_y: i32) -> (i32, i32) {
-            (delta_y, delta_y)
+            (-delta_y, -delta_y)
         }
         let (delta_x, delta_y) = value;
 
@@ -322,18 +322,18 @@ mod tests {
             },
             Command::SM {
                 duration: 1000,
-                axis_step_1: 1,
-                axis_step_2: Some(1),
-            },
-            Command::SM {
-                duration: 1000,
-                axis_step_1: -1,
-                axis_step_2: Some(1),
-            },
-            Command::SM {
-                duration: 1000,
                 axis_step_1: -1,
                 axis_step_2: Some(-1),
+            },
+            Command::SM {
+                duration: 1000,
+                axis_step_1: -1,
+                axis_step_2: Some(1),
+            },
+            Command::SM {
+                duration: 1000,
+                axis_step_1: 1,
+                axis_step_2: Some(1),
             },
         ]];
 
