@@ -8,13 +8,13 @@ use std::time::Duration;
 use thiserror::Error;
 
 use svg::node::element::path::Data;
-use svg::node::element::{Path as SVG_Path, Rectangle};
+use svg::node::element::Path as SVG_Path;
 use svg::Document;
 
 use serial_core::SerialDevice;
 
 pub mod point;
-use point::{Absolute, Coordinate, Relative};
+use point::{Coordinate, Relative};
 
 /// A series of connected `Point`s form a `Path`.
 pub type Path = Vec<point::Coordinate<point::Absolute>>;
@@ -208,8 +208,7 @@ impl Plot {
 
         let strokes: Strokes = (&self.paths).try_into().unwrap();
 
-        let mut doc = Document::new()
-            .set("viewBox", (min_x, min_y, max_x - min_x, max_y - min_y));
+        let mut doc = Document::new().set("viewBox", (min_x, min_y, max_x - min_x, max_y - min_y));
 
         for stroke in strokes.0 {
             let mut data = Data::new();
@@ -225,7 +224,6 @@ impl Plot {
                 .set("d", data);
 
             doc = doc.add(path);
-
         }
 
         //data = data.close();
@@ -246,7 +244,6 @@ impl Plot {
             );
 
         doc.add(rect)
-
     }
 }
 
