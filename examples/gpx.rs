@@ -1,4 +1,5 @@
-use loempia::{Driver, Error, Plot, get_boundaries};
+use loempia::point::Coordinate;
+use loempia::{get_boundaries, Driver, Error, Plot};
 use roxmltree::{Document, Node};
 use std::{env, fs, path};
 
@@ -80,16 +81,21 @@ fn track_segment_to_path(node: &Node) -> Path {
 }
 
 /// Adjust every point by the given latitude and longitude.
-fn adjust(paths: Vec<Path>, adjustment: (f32, f32)) -> Vec<Path> {
+fn adjust(paths: loempia::Paths, adjustment: (i32, i32)) -> loempia::Paths {
     let (lat_adjustment, lon_adjustment) = adjustment;
-    paths
+    let x = paths
+        .paths
         .iter()
         .map(|path| {
             path.iter()
-                .map(|(lat, lon)| (lat + lat_adjustment, lon + lon_adjustment))
+                .map(|Coordinate { x, y, .. }| {
+                    Coordinate::new(x + lat_adjustment, y + lon_adjustment)
+                })
                 .collect()
         })
-        .collect()
+        .collect();
+
+    loempia::Paths::new(x).unwrap()
 }
 
 /// Multiply every point by the given scale.
@@ -113,7 +119,7 @@ fn to_paths(paths: Vec<Path>) -> loempia::Paths {
                 // This conversion panic when `lat` or `lon` are out of the bounds for `i32`.
                 // However, that seems unlikely, given valid values for latitude range from -90 to
                 // 90. While longitude ranges from -180 to 180.
-                .map(|(lat, lon)| (*lat as i32, *lon as i32))
+                .map(|(lat, lon)| Coordinate::new(*lat as i32, *lon as i32))
                 .collect()
         })
         .collect();
@@ -162,12 +168,13 @@ fn main() -> Result<(), Error> {
             acc
         });
 
+    let paths = down_size(paths, resolution);
 
-    //let paths = down_size(paths, resolution);
-
+    let paths = scale(paths, 500_000.0);
+    let paths: loempia::Paths = to_paths(paths);
     let (min_lat, min_lon, max_lat, max_lon) = get_boundaries(&paths);
 
-    let lat_adjustment: f32 = -{
+    let lat_adjustment: i32 = -{
         if min_lat < max_lat {
             min_lat
         } else {
@@ -175,7 +182,7 @@ fn main() -> Result<(), Error> {
         }
     };
 
-    let lon_adjustment: f32 = -{
+    let lon_adjustment: i32 = -{
         if min_lon < max_lon {
             min_lon
         } else {
@@ -184,15 +191,13 @@ fn main() -> Result<(), Error> {
     };
 
     let paths = adjust(paths, (lat_adjustment, lon_adjustment));
-    let paths = scale(paths, 500_000.0);
 
-    let paths: loempia::Paths = to_paths(paths);
     let plot = Plot::new(paths);
     svg::save("/tmp/image.svg", &plot.preview()).unwrap();
 
-    //let serial_path = path::Path::new("/dev/ttyACM0");
-    //let mut driver = Driver::open(serial_path)?;
+    let serial_path = path::Path::new("/dev/ttyACM0");
+    let mut driver = Driver::open(serial_path)?;
 
-    //driver.plot(&plot)?;
+    driver.plot(&plot)?;
     Ok(())
 }
