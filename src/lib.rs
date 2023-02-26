@@ -226,8 +226,6 @@ impl Plot {
             doc = doc.add(path);
         }
 
-        //data = data.close();
-
         let rect = SVG_Path::new()
             .set("fill", "none")
             .set("stroke", "black")
