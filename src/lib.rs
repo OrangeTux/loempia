@@ -8,10 +8,18 @@ use std::time::Duration;
 use thiserror::Error;
 
 use svg::node::element::path::Data;
-use svg::node::element::Path as SVG_Path;
+use svg::node::element::{Path as SVG_Path, Rectangle};
 use svg::Document;
 
 use serial_core::SerialDevice;
+
+//pub type Relative = 1;
+
+//pub type Coordinate<T> {
+    //x: i32,
+    //y: i32,
+//};
+
 
 /// A `Point` is a coordinate on a 2D cartesian plane. Multi
 pub type Point = (i32, i32);
@@ -165,6 +173,16 @@ fn convert_to_series_of_commands(strokes: Strokes) -> Vec<Vec<Command>> {
         .collect()
 }
 
+// Return the distance between end of a path and the start of the subsequent path.
+fn spacers(paths: &Paths) -> Vec<(i32, i32)> {
+    paths.paths.windows(2).map(|window| {
+        let end  = *window[0].last().unwrap();
+        let start = *window[1].first().unwrap();
+
+        (start.0 - end.0, start.1 - end.1)
+    }).collect()
+}
+
 pub struct Plot {
     paths: Paths,
     start: Point,
@@ -189,11 +207,17 @@ impl Plot {
         let mut data = Data::new().move_to(self.start);
 
         let strokes: Strokes = (&self.paths).try_into().unwrap();
+        let binding = spacers(&self.paths);
+        let mut spacers = binding.iter();
 
         for stroke in strokes.0 {
             for point in &stroke.0 {
                 data = data.line_by(*point);
             }
+
+            if let Some(move_by) = spacers.next() {
+                data = data.move_by(*move_by);
+            };
         }
 
         data = data.close();
@@ -204,12 +228,27 @@ impl Plot {
             .set("stroke-width", 10)
             .set("d", data);
 
-        Document::new()
+        let rect = SVG_Path::new()
+            .set("fill", "none")
+            .set("stroke", "black")
+            .set("stroke-dasharray", "100,100")
+            .set("stroke-width", 10)
             .set(
-                "viewBox",
-                (min_x, min_y, max_x - min_x, max_y - min_y),
-            )
+                "d",
+                Data::new()
+                    .move_to((0, 0))
+                    .line_to((0, 21000))
+                    .line_to((30300, 21000))
+                    .line_to((30300, 0))
+                    .line_to((0, 0)),
+            );
+
+        Document::new()
+            .set("viewBox", (min_x, min_y, max_x - min_x, max_y - min_y))
+            //.set("viewBox", (-1000, -1000, 30300, 21000))
+            //.set("viewBox", (0, 0, 100, 100))
             .add(path)
+            .add(rect)
     }
 }
 

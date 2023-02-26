@@ -162,7 +162,9 @@ fn main() -> Result<(), Error> {
             acc
         });
 
-    let paths = down_size(paths, resolution);
+
+    //let paths = down_size(paths, resolution);
+
     let (min_lat, min_lon, max_lat, max_lon) = get_boundaries(&paths);
 
     let lat_adjustment: f32 = -{
@@ -186,10 +188,11 @@ fn main() -> Result<(), Error> {
 
     let paths: loempia::Paths = to_paths(paths);
     let plot = Plot::new(paths);
+    svg::save("/tmp/image.svg", &plot.preview()).unwrap();
 
-    let serial_path = path::Path::new("/dev/ttyACM0");
-    let mut driver = Driver::open(serial_path)?;
+    //let serial_path = path::Path::new("/dev/ttyACM0");
+    //let mut driver = Driver::open(serial_path)?;
 
-    driver.plot(&plot)?;
+    //driver.plot(&plot)?;
     Ok(())
 }
