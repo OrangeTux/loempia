@@ -13,14 +13,14 @@ use svg::Document;
 
 use serial_core::SerialDevice;
 
-/// A `Point` is a coordinate on a 2D cartesian plane. Multi
-pub type Point = (i32, i32);
+pub mod point;
+use point::{Coordinate, Relative};
 
 /// A series of connected `Point`s form a `Path`.
-pub type Path = Vec<Point>;
+pub type Path = Vec<point::Coordinate<point::Absolute>>;
 
 pub struct Paths {
-    paths: Vec<Path>,
+    pub paths: Vec<Path>,
 }
 
 impl Paths {
@@ -44,11 +44,11 @@ impl Paths {
 
 /// Get the boundaries of the boundaries of a series of paths. The function is generic
 /// over the type coordinate type
-pub fn get_boundaries<T: PartialOrd + Copy>(paths: &Vec<Vec<(T, T)>>) -> (T, T, T, T) {
+pub fn get_boundaries(paths: &Paths) -> (i32, i32, i32, i32) {
     let (mut min_x, mut min_y, mut max_x, mut max_y) = (None, None, None, None);
 
-    paths.iter().for_each(|path| {
-        path.iter().for_each(|(x, y)| {
+    paths.paths.iter().for_each(|path| {
+        path.iter().for_each(|Coordinate { x, y, .. }| {
             _ = min_x.get_or_insert(x);
             _ = max_x.get_or_insert(x);
 
@@ -82,11 +82,8 @@ pub fn get_boundaries<T: PartialOrd + Copy>(paths: &Vec<Vec<(T, T)>>) -> (T, T, 
     )
 }
 
-// A `Vector` represents a movement in an x and y direction.
-type Vector = (i32, i32);
-
-impl From<&Vector> for Command {
-    fn from(value: &Vector) -> Self {
+impl From<&Coordinate<Relative>> for Command {
+    fn from(value: &Coordinate<Relative>) -> Self {
         fn movement_on_x_axis(delta_x: i32) -> (i32, i32) {
             (delta_x, -delta_x)
         }
@@ -94,10 +91,10 @@ impl From<&Vector> for Command {
         fn movement_on_y_axis(delta_y: i32) -> (i32, i32) {
             (-delta_y, -delta_y)
         }
-        let (delta_x, delta_y) = value;
+        let (delta_x, delta_y) = (value.x, value.y);
 
-        let (x1, y1) = movement_on_x_axis(*delta_x);
-        let (x2, y2) = movement_on_y_axis(*delta_y);
+        let (x1, y1) = movement_on_x_axis(delta_x);
+        let (x2, y2) = movement_on_y_axis(delta_y);
 
         Command::SM {
             duration: 1000,
@@ -109,30 +106,30 @@ impl From<&Vector> for Command {
 
 /// A `Stroke` is a collection of `Vector`s.
 #[derive(PartialEq, Debug)]
-struct Stroke(pub Vec<Vector>);
-
-impl ops::Deref for Stroke {
-    type Target = Vec<Vector>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+struct Stroke {
+    start: point::Coordinate<point::Absolute>,
+    path: Vec<point::Coordinate<point::Relative>>,
+    end: point::Coordinate<point::Absolute>,
 }
 
 impl TryFrom<&Path> for Stroke {
     type Error = Error;
 
     fn try_from(path: &Path) -> Result<Self, Self::Error> {
-        let vectors: Result<Vec<Vector>, Self::Error>  = path
+        let stroke: Result<Vec<point::Coordinate<point::Relative>>, Self::Error>  = path
             .windows(2)
             .map(|points| match points {
-                [(x1, y1), (x2, y2)] => Ok((x2 - x1, y2 - y1)),
+                [p1, p2] => Ok(Coordinate::new(p2.x - p1.x, p2.y - p1.y)),
                 _ => Err(Error::ConversionError(format!("Failed to convert `Path` to `Stroke`. Given `Path` contains {:?} `Point`s, but requires at least 2 `Point`s.", path.len())))
             })
             .collect();
 
-        let vectors = vectors?;
-        Ok(Stroke(vectors))
+        let stroke = stroke?;
+        Ok(Stroke {
+            start: *path.first().expect(""),
+            end: *path.last().expect(""),
+            path: stroke,
+        })
     }
 }
 
@@ -161,20 +158,42 @@ impl TryFrom<&Paths> for Strokes {
 fn convert_to_series_of_commands(strokes: Strokes) -> Vec<Vec<Command>> {
     strokes
         .iter()
-        .map(|stroke| stroke.iter().map(Command::from).collect())
+        .map(|stroke| {
+            let mut cmds: Vec<Command> = vec![];
+            // Ugly work around to move to first point of stroke.
+            let start: Coordinate<Relative> = Coordinate::new(stroke.start.x, stroke.start.y);
+
+            // Move to first point.
+            cmds.push(Command::from(&start));
+            // Lower the pen.
+            cmds.push(Command::Any("SP,1".to_string()));
+
+            let x: Vec<Command> = stroke.path.iter().map(Command::from).collect();
+            for command in x {
+                cmds.push(command);
+            }
+
+            // Raise the pen.
+            cmds.push(Command::Any("SP,0".to_string()));
+
+            // Ugly work around to move to home.
+            let home: Coordinate<Relative> = Coordinate::new(-stroke.end.x, -stroke.end.y);
+
+            // Move to home.
+            cmds.push(Command::from(&home));
+            cmds
+        })
         .collect()
 }
 
 pub struct Plot {
     paths: Paths,
-    start: Point,
 }
 
 impl Plot {
     /// Create a new `Plot`.
     pub fn new(paths: Paths) -> Self {
-        let start = paths.paths[0][0];
-        Plot { paths, start }
+        Plot { paths }
     }
 
     /// Create a new `Plot` using a single `Path`.
@@ -185,31 +204,44 @@ impl Plot {
 
     /// Create SVG preview `Plot` as SVG.
     pub fn preview(&self) -> Document {
-        let (min_x, min_y, max_x, max_y) = get_boundaries(&self.paths.paths);
-        let mut data = Data::new().move_to(self.start);
+        let (min_x, min_y, max_x, max_y) = get_boundaries(&self.paths);
 
         let strokes: Strokes = (&self.paths).try_into().unwrap();
 
+        let mut doc = Document::new().set("viewBox", (min_x, min_y, max_x - min_x, max_y - min_y));
+
         for stroke in strokes.0 {
-            for point in &stroke.0 {
-                data = data.line_by(*point);
+            let mut data = Data::new();
+            data = data.move_to((stroke.start.x, stroke.start.y));
+            for point in &stroke.path {
+                data = data.line_by((point.x, point.y));
             }
+
+            let path = SVG_Path::new()
+                .set("fill", "none")
+                .set("stroke", "black")
+                .set("stroke-width", 10)
+                .set("d", data);
+
+            doc = doc.add(path);
         }
 
-        data = data.close();
-
-        let path = SVG_Path::new()
+        let rect = SVG_Path::new()
             .set("fill", "none")
             .set("stroke", "black")
+            .set("stroke-dasharray", "100,100")
             .set("stroke-width", 10)
-            .set("d", data);
-
-        Document::new()
             .set(
-                "viewBox",
-                (min_x, min_y, max_x - min_x, max_y - min_y),
-            )
-            .add(path)
+                "d",
+                Data::new()
+                    .move_to((0, 0))
+                    .line_to((0, 21000))
+                    .line_to((30300, 21000))
+                    .line_to((30300, 0))
+                    .line_to((0, 0)),
+            );
+
+        doc.add(rect)
     }
 }
 
