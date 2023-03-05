@@ -14,6 +14,7 @@ use svg::Document;
 use serial_core::SerialDevice;
 
 pub mod point;
+pub mod roland_dxy;
 use point::{Coordinate, Relative};
 
 /// A series of connected `Point`s form a `Path`.
