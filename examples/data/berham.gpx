@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd" version="1.1" creator="overpass-ide">
+   <metadata>
+      <desc>Filtered OSM data converted to GPX by overpass turbo</desc>
+      <copyright author="The data included in this document is from www.openstreetmap.org. The data is made available under ODbL." />
+      <time>2023-02-18T10:51:24Z</time>
+   </metadata>
+   <trk>
+      <name>Voglherdstraße</name>
+      <desc>highway=residential
+name=Voglherdstraße</desc>
+      <link href="http://osm.org/browse/way/40130671" />
+      <trkseg>
+	 <trkpt lat="47.7903652" lon="11.8563373" />
+	 <trkpt lat="47.7902219" lon="11.8553469" />
+	 <trkpt lat="47.7902151" lon="11.8552997" />
+	 <trkpt lat="47.7900859" lon="11.8544064" />
+	 <trkpt lat="47.7900267" lon="11.8542001" />
+	 <trkpt lat="47.7900086" lon="11.8538908" />
+	 <trkpt lat="47.7899817" lon="11.8529994" />
+	 <trkpt lat="47.7899055" lon="11.8521076" />
+      </trkseg>
+   </trk>
+   <trk>
+      <name>Sepp-Sontheim-Straße</name>
+      <desc>highway=residential
+name=Sepp-Sontheim-Straße
+surface=asphalt</desc>
+      <link href="http://osm.org/browse/way/40131884" />
+      <trkseg>
+	 <trkpt lat="47.7900267" lon="11.8542001" />
+	 <trkpt lat="47.7894082" lon="11.854177" />
+	 <trkpt lat="47.7890455" lon="11.8541479" />
+	 <trkpt lat="47.788843" lon="11.8541255" />
+	 <trkpt lat="47.7886124" lon="11.8541341" />
+	 <trkpt lat="47.7883073" lon="11.854029" />
+	 <trkpt lat="47.7878938" lon="11.8537032" />
+	 <trkpt lat="47.7878461" lon="11.853658" />
+	 <trkpt lat="47.7877555" lon="11.8535893" />
+      </trkseg>
+   </trk>
+   <trk>
+      <name>Voglherdstraße</name>
+      <desc>highway=residential
+name=Voglherdstraße</desc>
+      <link href="http://osm.org/browse/way/40439403" />
+      <trkseg>
+	 <trkpt lat="47.7900086" lon="11.8538908" />
+	 <trkpt lat="47.7903587" lon="11.8538975" />
+      </trkseg>
+   </trk>
+   <trk>
+      <name>Voglherdstraße</name>
+      <desc>highway=residential
+name=Voglherdstraße</desc>
+      <link href="http://osm.org/browse/way/40439404" />
+      <trkseg>
+	 <trkpt lat="47.7900859" lon="11.8544064" />
+	 <trkpt lat="47.7904055" lon="11.8544393" />
+      </trkseg>
+   </trk>
+</gpx>
