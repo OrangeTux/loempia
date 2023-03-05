@@ -1,7 +1,12 @@
-use loempia::point::Coordinate;
-use loempia::{get_boundaries, Driver, Error, Plot};
+use std::path::PathBuf;
+use std::{fs, path};
+
+use clap::{Parser, Subcommand};
 use roxmltree::{Document, Node};
-use std::{env, fs, path};
+
+use loempia::point::Coordinate;
+use loempia::roland_dxy::{default_port_settings, Driver};
+use loempia::{get_boundaries, Error, Plot};
 
 type Point = (f32, f32);
 type Path = Vec<Point>;
@@ -139,21 +144,34 @@ fn down_size(paths: Vec<Path>, resolution: usize) -> Vec<Path> {
         .collect()
 }
 
-fn main() -> Result<(), Error> {
-    let args: Vec<_> = env::args().collect();
+#[derive(Parser, Debug)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
 
-    if args.len() < 2 {
-        println!("Usage:\n\tcargo run --example gpx -- input.gpx [resolution]");
-        std::process::exit(1);
-    }
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Plot
+    Plot {
+        input: PathBuf,
 
-    let text = fs::read_to_string(&args[1]).unwrap();
-    let resolution: usize = args
-        .get(2)
-        .unwrap_or(&String::from("1"))
-        .parse()
-        .expect("Failed to parse resolution into a usize.");
-    let doc = Document::parse(&text).expect("Failed to parse given file as GPX.");
+        /// Path to serial device.
+        #[arg(short, long, default_value = "/dev/ttyUSB0")]
+        device: PathBuf,
+    },
+    Preview {
+        input: PathBuf,
+
+        /// Location where SVG is written to.
+        #[arg(short, long, default_value = "/tmp/gpx.svg")]
+        output: PathBuf,
+    },
+}
+
+fn get_plot(path: &PathBuf) -> Result<Plot, Error> {
+    let text = fs::read_to_string(path).expect(&format!("Failed to read {}.", path.display()));
+    let doc = Document::parse(&text).expect(&format!("Failed to parse {} as GPX.", path.display()));
 
     let paths: Vec<_> = doc
         .descendants()
@@ -168,7 +186,7 @@ fn main() -> Result<(), Error> {
             acc
         });
 
-    let paths = down_size(paths, resolution);
+    let paths = down_size(paths, 1);
 
     let paths = scale(paths, 500_000.0);
     let paths: loempia::Paths = to_paths(paths);
@@ -192,12 +210,26 @@ fn main() -> Result<(), Error> {
 
     let paths = adjust(paths, (lat_adjustment, lon_adjustment));
 
-    let plot = Plot::new(paths);
-    svg::save("/tmp/image.svg", &plot.preview()).unwrap();
+    Ok(Plot::new(paths))
+}
 
-    let serial_path = path::Path::new("/dev/ttyACM0");
-    let mut driver = Driver::open(serial_path)?;
+fn main() -> Result<(), Error> {
+    let cli = Cli::parse();
 
-    driver.plot(&plot)?;
+    match &cli.command {
+        Commands::Plot { input, device } => {
+            let plot = get_plot(input)?;
+            let serial_path = path::Path::new(device);
+            let mut driver = Driver::open(serial_path, default_port_settings())?;
+            driver.plot(&plot)?;
+        }
+        Commands::Preview { input, output } => {
+            let plot = get_plot(input)?;
+            let document = plot.preview();
+            svg::save(output, &document).expect(&format!("Failed to save preview at {}.", output.display()));
+            println!("Preview written to {}.", output.display());
+        }
+    }
+
     Ok(())
 }
