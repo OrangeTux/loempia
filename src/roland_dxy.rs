@@ -9,8 +9,14 @@ use crate::{Error, Plot, Strokes};
 
 #[derive(Debug)]
 pub enum Command {
+    // Scale
+    SC(usize, usize, usize, usize),
+
+    EA(usize, usize),
     /// Plotter is changed into initial state.
     IN,
+    //
+    IP(usize, usize, usize, usize),
 
     /// Plot characters.
     //LB(Vec<u8>),
@@ -30,53 +36,74 @@ pub enum Command {
     SP(u8),
 }
 
-impl Command {
-    pub fn as_bytes(&self) -> &[u8] {
-        match self {
-            Command::IN => "IN;".as_bytes(),
-            Command::PA(None) => "PA;".as_bytes(),
-            //Command::PA(Some(coordinate)) => {
-            //format!("PA{},{};", coordinate.x, coordinate.y).as_bytes()
-            //}
-            Command::PD(None) => "PD;".as_bytes(),
-            //Command::PD(Some(coordinate)) => {
-            //format!("PD{},{};", coordinate.x, coordinate.y).as_bytes()
-            //}
-            Command::PR(None) => "PR;".as_bytes(),
-            //Command::PR(Some(coordinate)) => {
-            //format!("PR{},{};", coordinate.x, coordinate.y).as_bytes()
-            //}
-            Command::PU(None) => "PU;".as_bytes(),
-            //Command::PU(Some(coordinate)) => {
-            //format!("PU{},{};", coordinate.x, coordinate.y).as_bytes()
-            //}
-            Command::SP(number) => "SP1;".as_bytes(),
-            _ => panic!("{}", format!("{:?}", self)),
-        }
+impl std::fmt::Display for Command {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let string = match self {
+            Command::SC(x_min, x_max, y_min, y_max) => {
+                format!("SC{},{},{},{}", x_min, x_max, y_min, y_max)
+            }
+            Command::EA(x, y) => {
+                format!("SC{},{}", x, y)
+            }
+
+            Command::IN => String::from("IN;"),
+            Command::IP(x_min, x_max, y_min, y_max) => {
+                format!("IP{},{},{},{}", x_min, x_max, y_min, y_max)
+            }
+
+            Command::PA(None) => String::from("PA;"),
+            Command::PA(Some(coordinate)) => {
+                format!("PA{},{};", coordinate.x, coordinate.y)
+            }
+            Command::PD(None) => String::from("PD;"),
+            Command::PD(Some(coordinate)) => {
+                format!("PD{},{};", coordinate.x, coordinate.y)
+            }
+            Command::PR(None) => String::from("PR;"),
+            Command::PR(Some(coordinate)) => {
+                format!("PR{},{};", coordinate.x, coordinate.y)
+            }
+            Command::PU(None) => String::from("PU;"),
+            Command::PU(Some(coordinate)) => {
+                format!("PU{},{};", coordinate.x, coordinate.y)
+            }
+            Command::SP(number) => format!("SP{};", number),
+            //_ => panic!("{}", format!("{:?}", self)),
+        };
+
+        write!(f, "{}", string)
     }
 }
 
 fn to_hp_gl(strokes: &Strokes) -> Cursor<Vec<u8>> {
     let mut hpgl = Cursor::new(Vec::new());
-    hpgl.write(Command::IN.as_bytes());
-    hpgl.write(Command::SP(1).as_bytes());
 
-    //strokes.0.iter().for_each(|stroke| {
-        ////Raise pen, just to be sure.
-        //hpgl.write(Command::PU(None).as_bytes());
+    hpgl.write(Command::IN.to_string().as_bytes());
+    hpgl.write(Command::SP(1).to_string().as_bytes());
 
-        ////Move to to absolute start.
-        //hpgl.write(Command::PU(Some(stroke.start)).as_bytes());
+    strokes.0.iter().for_each(|stroke| {
+        //Raise pen, just to be sure.
+        hpgl.write(&Command::PU(None).to_string().as_bytes());
 
-        //stroke.path.iter().for_each(|point| {
-            //hpgl.write(Command::PR(Some(*point)).as_bytes());
-        //});
-    //});
+        //Move to to absolute start.
+        hpgl.write(&Command::PD(Some(stroke.start)).to_string().as_bytes());
 
-    ////Raise pen and move to home
-    //hpgl.write(Command::PU(Some(Coordinate::new(0, 0))).as_bytes());
+        stroke.path.iter().for_each(|point| {
+            hpgl.write(&Command::PR(Some(*point)).to_string().as_bytes());
+        });
+    });
 
-    return hpgl;
+    // Raise pen and move to home
+    hpgl.write(
+        &Command::PU(Some(Coordinate::new(0, 0)))
+            .to_string()
+            .as_bytes(),
+    );
+
+    // Return pen to slot and go home.
+    hpgl.write(&Command::SP(0).to_string().as_bytes());
+
+    hpgl
 }
 
 pub struct Driver {
@@ -106,10 +133,7 @@ impl Driver {
     pub fn plot(&mut self, plot: &Plot) -> Result<(), Error> {
         let strokes: Strokes = Strokes::try_from(&plot.paths)?;
         let hpgl = to_hp_gl(&strokes);
-        self.file.write(b"SP1;").expect("YOLO");
-        self.file.write(b"SP2;").expect("YOLO");
-        //self.file.write(&hpgl.into_inner()).;
-        //dbg!(hpgl);
+        self.file.write(&hpgl.into_inner());
 
         Ok(())
     }
