@@ -197,6 +197,12 @@ impl Plot {
         Plot { paths }
     }
 
+    pub fn dimensions(&self) -> (i32, i32) {
+        let (min_x, min_y, max_x, max_y) = get_boundaries(&self.paths);
+
+        (max_x - min_x, max_y - min_y)
+    }
+
     /// Create a new `Plot` using a single `Path`.
     pub fn from_path(path: Path) -> Result<Self, Error> {
         let paths = Paths::new(vec![path])?;

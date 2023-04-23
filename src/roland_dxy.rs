@@ -10,7 +10,7 @@ use crate::{Error, Plot, Strokes};
 #[derive(Debug)]
 pub enum Command {
     // Scale
-    SC(usize, usize, usize, usize),
+    SC(i32, i32, i32, i32),
 
     EA(usize, usize),
     /// Plotter is changed into initial state.
@@ -78,7 +78,6 @@ impl std::fmt::Display for Command {
 fn to_hp_gl(strokes: &Strokes) -> Cursor<Vec<u8>> {
     let mut hpgl = Cursor::new(Vec::new());
 
-    hpgl.write(Command::IN.to_string().as_bytes());
     hpgl.write(Command::SP(1).to_string().as_bytes());
 
     strokes.0.iter().for_each(|stroke| {
@@ -101,7 +100,7 @@ fn to_hp_gl(strokes: &Strokes) -> Cursor<Vec<u8>> {
     hpgl.write(
         &Command::PU(Some(Coordinate::new(0, 0)))
             .to_string()
-            .as_bytes()
+            .as_bytes(),
     );
 
     // Return pen to slot and go home.
@@ -136,6 +135,29 @@ impl Driver {
 
     pub fn plot(&mut self, plot: &Plot) -> Result<(), Error> {
         let strokes: Strokes = Strokes::try_from(&plot.paths)?;
+        let (length, height) = plot.dimensions();
+
+        let aspect_ratio = 10_000.0 / 7_000.0;
+        let x_ratio = 10_000.0 / length as f32;
+        let y_ratio = 7_000.0 / height as f32;
+
+        self.file.write(Command::IN.to_string().as_bytes());
+        self.file
+            .write(Command::IP(0, 0, 10_000, 7000).to_string().as_bytes());
+        if x_ratio < y_ratio {
+            self.file.write(
+                Command::SC(0, length, 0, (height as f32 * aspect_ratio) as i32)
+                    .to_string()
+                    .as_bytes(),
+            );
+        } else {
+            self.file.write(
+                Command::SC(0, (length as f32 * aspect_ratio) as i32, 0, height)
+                    .to_string()
+                    .as_bytes(),
+            );
+        }
+
         let hpgl = to_hp_gl(&strokes);
         self.file.write(&hpgl.into_inner());
 
