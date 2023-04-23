@@ -85,10 +85,14 @@ fn to_hp_gl(strokes: &Strokes) -> Cursor<Vec<u8>> {
         //Raise pen, just to be sure.
         hpgl.write(&Command::PU(None).to_string().as_bytes());
 
-        //Move to to absolute start.
-        hpgl.write(&Command::PD(Some(stroke.start)).to_string().as_bytes());
+        //Move to to absolute start of the stroke.
+        hpgl.write(&Command::PA(Some(stroke.start)).to_string().as_bytes());
+
+        // Lower the pen.
+        hpgl.write(&Command::PD(None).to_string().as_bytes());
 
         stroke.path.iter().for_each(|point| {
+            // Move to each coordinate relative to current position.
             hpgl.write(&Command::PR(Some(*point)).to_string().as_bytes());
         });
     });
@@ -97,7 +101,7 @@ fn to_hp_gl(strokes: &Strokes) -> Cursor<Vec<u8>> {
     hpgl.write(
         &Command::PU(Some(Coordinate::new(0, 0)))
             .to_string()
-            .as_bytes(),
+            .as_bytes()
     );
 
     // Return pen to slot and go home.
